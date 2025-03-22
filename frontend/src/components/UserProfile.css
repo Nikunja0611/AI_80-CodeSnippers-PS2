@@ -1,0 +1,130 @@
+.user-profile {
+    position: relative;
+  }
+  
+  .profile-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 20px;
+    transition: background-color 0.3s;
+  }
+  
+  .profile-button:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+  
+  .profile-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  
+  .profile-avatar-fallback {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: #4a6cf7;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+  
+  .profile-name {
+    font-weight: 500;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  .profile-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    width: 240px;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    overflow: hidden;
+    margin-top: 8px;
+    animation: dropdown-fade 0.2s ease-in-out;
+  }
+  
+  @keyframes dropdown-fade {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .dropdown-header {
+    padding: 16px;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .user-email {
+    margin: 0;
+    color: #666;
+    font-size: 0.875rem;
+    word-break: break-all;
+  }
+  
+  .dropdown-options {
+    padding: 8px 0;
+  }
+  
+  .dropdown-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    font-size: 0.875rem;
+  }
+  
+  .dropdown-option:hover {
+    background-color: #f5f7ff;
+  }
+  
+  .signout-option {
+    color: #e53935;
+  }
+  
+  .signout-option:hover {
+    background-color: rgba(229, 57, 53, 0.1);
+  }
+  
+  /* Responsive styles */
+  @media (max-width: 768px) {
+    .profile-name {
+      max-width: 100px;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .profile-name {
+      display: none;
+    }
+    
+    .profile-dropdown {
+      width: 200px;
+    }
+  }
