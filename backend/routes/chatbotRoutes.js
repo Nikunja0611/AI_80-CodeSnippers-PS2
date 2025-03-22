@@ -1,140 +1,224 @@
-// routes/chatRoutes.js
 const express = require('express');
 const router = express.Router();
 const Query = require('../models/query');
 const User = require('../models/user');
 const Session = require('../models/session');
 const Feedback = require('../models/feedback');
-const { getContextualInfo } = require('../utils/contextProvider');
+const { getContextualInfo, fetchERPData } = require('../utils/contextProvider');
 const { matchFAQ } = require('../utils/faqMatcher');
+const { createEnhancedPrompt, detectQueryIntent } = require('../utils/promptEnhancer');
+const { authenticateUser } = require('../config/firebaseAdmin');
 
-// Initialize GeminiAI client
+// Initialize Gemini AI client
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-
-// Initialize the Google Generative AI with your API key
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-router.post('/chat', async (req, res) => {
+// Modified authentication middleware to handle anonymous sessions
+// Modified authentication middleware to handle anonymous sessions
+const authMiddleware = async (req, res, next) => {
   try {
-    const { message } = req.body;
-
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Message must be a non-empty string' });
-    }
-
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: message }
-          ]
-        }
-      ]
-    });
-
-    const response = result.response.text();
-
-    res.json({ response });
-
-  } catch (error) {
-    console.error('Error in chat route:', error);
-    res.status(500).json({ error: 'Failed to process your request' });
-  }
-});
-
-
-// Get or create user session
-// Update getOrCreateUserSession function
-const getOrCreateUserSession = async (userId, userInfo) => {
-  // First try to find by userId
-  let user = await User.findOne({ userId });
-  
-  if (!user) {
-    // Also check if a user with this sessionId already exists
-    user = await User.findOne({ sessionId: userId });
+    // Check if auth token is provided
+    const authHeader = req.headers.authorization;
     
-    if (!user) {
-      // Create new user if not found by either userId or sessionId
-      user = new User({
-        userId,
-        sessionId: userId,
-        department: userInfo.department || 'general',
-        // Add other required fields based on your schema
-      });
-      await user.save();
-      
-      // Create a new session
-      const session = new Session({
-        sessionId: userId,
-        userId: user._id,
-        // Add other required fields
-      });
-      await session.save();
-    } else {
-      // If found by sessionId but not userId, update the userId
-      user.userId = userId;
-      await user.save();
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // Create anonymous session data
+      req.user = {
+        isAnonymous: true,
+        firebaseUid: `anonymous-${Date.now()}`,
+        email: `guest-${Date.now()}@asknova.local`,
+        name: 'Guest User'
+      };
+      return next();
     }
-  } else {
-    // User exists, update last active time if needed
-    // You might want to add code here to update user's last activity
+    
+    // Otherwise use the real authentication
+    try {
+      await authenticateUser(req, res, next);
+      
+      // Check if authenticateUser properly set req.user
+      if (!req.user) {
+        req.user = {
+          isAnonymous: true,
+          firebaseUid: `anonymous-${Date.now()}`,
+          email: `guest-${Date.now()}@asknova.local`,
+          name: 'Guest User'
+        };
+      }
+      
+      return next();
+    } catch (authError) {
+      // If authentication fails, fall back to anonymous
+      console.warn('Authentication failed, using anonymous session:', authError.message);
+      req.user = {
+        isAnonymous: true,
+        firebaseUid: `anonymous-${Date.now()}`,
+        email: `guest-${Date.now()}@asknova.local`,
+        name: 'Guest User'
+      };
+      return next();
+    }
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
-  
-  return user;
 };
 
-// Process user query
-// Modify your query creation in the /query endpoint
-router.post('/query', async (req, res) => {
+// Create or get user session - updated to handle anonymous users
+const getOrCreateSession = async (req) => {
   try {
-    const { prompt, userId, userRole, department, isVoiceCommand } = req.body;
-    console.log('Query endpoint hit with body:', req.body);
+    const { firebaseUid, email, name, isAnonymous } = req.user;
+    const sessionId = req.body.sessionId || `session_${Date.now()}`;
+    const platform = req.body.platform || 'web';
+    const deviceInfo = req.body.deviceInfo || {};
+
+    // Find user by Firebase UID
+    let user = await User.findOne({ firebaseUid });
     
-    // Get or create user
-    const user = await getOrCreateUserSession(userId, {
-      department: department || 'general',
-    });
-    
-    // Initialize with default empty response and type
-    // This addresses the required fields issue
-    const query = new Query({
-      prompt,
-      userId: userId, // Keep as string for now (we'll fix the schema later)
-      sessionId: userId,
-      userRole: userRole || 'general',
-      department: department || 'general',
-      isVoiceCommand: isVoiceCommand || false,
-      responseType: 'pending', // Add default value for required field
-      response: 'Processing...', // Add default value for required field
-    });
-    
-    try {
-      await query.save();
-    } catch (saveError) {
-      console.warn('Error saving query:', saveError);
-      
-      // If the error is related to userId type, let's try finding the user's MongoDB _id
-      if (saveError.errors && saveError.errors.userId) {
-        // If user was found earlier, use its _id instead of the string userId
-        if (user && user._id) {
-          query.userId = user._id; // This should be an ObjectId
-          await query.save();
-        } else {
-          throw saveError; // Re-throw if we can't fix it
-        }
-      } else {
-        throw saveError; // Re-throw other errors
-      }
+    // Create user if doesn't exist
+    if (!user) {
+      user = new User({
+        firebaseUid,
+        email,
+        displayName: name || email.split('@')[0],
+        department: req.body.department || 'general',
+        role: isAnonymous ? 'guest' : (req.body.role || 'employee'),
+        isAnonymous: !!isAnonymous
+      });
+      await user.save();
     }
     
-    // Process the query with Gemini or other logic...
+    // Update last active time
+    user.lastActive = new Date();
+    await user.save();
+    
+    // Find active session or create new one
+    let session = await Session.findOne({ 
+      userId: user._id,
+      isActive: true
+    });
+    
+    if (!session) {
+      session = new Session({
+        sessionId,
+        userId: user._id,
+        platform,
+        deviceInfo,
+        isAnonymous: !!isAnonymous
+      });
+      await session.save();
+    }
+    
+    return { user, session };
+  } catch (error) {
+    console.error('Error in session management:', error);
+    throw error;
+  }
+};
+
+// Process user query - updated to use our custom auth middleware
+router.post('/query', authMiddleware, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { prompt, department, isVoiceCommand } = req.body;
+    
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Prompt must be a non-empty string' 
+      });
+    }
+    
+    // Get user session
+    const { user, session } = await getOrCreateSession(req);
+    
+    // Detect intent
+    const intent = await detectQueryIntent(prompt);
+    
+    // Create initial query record
+    const query = new Query({
+      sessionId: session.sessionId,
+      userId: user._id,
+      prompt,
+      department: department || user.department,
+      userRole: user.role,
+      isVoiceCommand: isVoiceCommand || false,
+      responseType: 'pending',
+      response: 'Processing your request...',
+      intentDetected: intent
+    });
+    
+    await query.save();
+    
+    // First check if we have a direct FAQ match
+    const faqMatch = await matchFAQ(prompt, user.department);
+    
+    // Add null check before accessing properties
+    if (faqMatch && faqMatch.matched && faqMatch.confidence > 0.75) {
+      // If we have a high confidence FAQ match, use that
+      query.response = faqMatch.faq.answer;
+      query.responseType = 'text';
+      query.responseTime = new Date();
+      query.source = 'faq';
+      query.processingTime = Date.now() - startTime;
+      await query.save();
+      
+      return res.json({ 
+        success: true, 
+        queryId: query._id,
+        response: faqMatch.faq.answer,
+        source: 'faq'
+      });
+    }
+    
+    // If intent is specific to ERP, try to fetch data
+    let erpData = null;
+    if (intent !== 'general') {
+      // Extract parameters from prompt - simplified version
+      // In production, use NLP to properly extract parameters
+      const params = {};
+      erpData = await fetchERPData(intent, params, user.role);
+    }
+    
+    // If we got data from ERP, format and return it
+    if (erpData && erpData.success) {
+      // Format ERP data as a response
+      const erpResponse = `Here's the information from the ${intent} system: 
+      
+${JSON.stringify(erpData.data, null, 2)}`;
+      
+      query.response = erpResponse;
+      query.responseType = 'text';
+      query.responseTime = new Date();
+      query.source = 'erp';
+      query.processingTime = Date.now() - startTime;
+      await query.save();
+      
+      return res.json({
+        success: true,
+        queryId: query._id,
+        response: erpResponse,
+        source: 'erp',
+        data: erpData.data
+      });
+    }
+    
+    // Otherwise, enhance the prompt with context and use Gemini
+    const { enhancedPrompt, context } = await createEnhancedPrompt(
+      prompt, 
+      user._id, 
+      user.department
+    );
+    
+    // Store context info for future reference
+    query.contextInfo = context;
+    await query.save();
+    
+    // Process with Gemini
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     
     const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }]
+      contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }]
     });
     
     const response = result.response.text();
@@ -143,13 +227,16 @@ router.post('/query', async (req, res) => {
     query.response = response;
     query.responseType = 'text';
     query.responseTime = new Date();
+    query.source = 'ai';
+    query.processingTime = Date.now() - startTime;
     await query.save();
     
     // Send response to client
     res.json({ 
       success: true, 
       queryId: query._id,
-      response 
+      response,
+      source: 'ai'
     });
     
   } catch (error) {
@@ -162,15 +249,18 @@ router.post('/query', async (req, res) => {
   }
 });
 
+// Update remaining endpoints to use our modified auth middleware
 
 // Submit feedback for a query
-router.post('/feedback', async (req, res) => {
+router.post('/feedback', authMiddleware, async (req, res) => {
   try {
-    const { queryId, rating, comment } = req.body;
+    const { queryId, rating, comment, category } = req.body;
     
     if (!queryId || !rating) {
       return res.status(400).json({ error: "QueryId and rating are required" });
     }
+    
+    const { user } = await getOrCreateSession(req);
     
     const query = await Query.findById(queryId);
     
@@ -186,10 +276,11 @@ router.post('/feedback', async (req, res) => {
     // Save feedback
     const feedback = new Feedback({
       queryId,
-      userId: query.userId,
+      userId: user._id,
       rating,
       comment,
-      sentiment
+      sentiment,
+      category
     });
     
     await feedback.save();
@@ -202,35 +293,59 @@ router.post('/feedback', async (req, res) => {
 });
 
 // End user session
-router.post('/end-session', async (req, res) => {
+router.post('/end-session', authMiddleware, async (req, res) => {
   try {
-    const { sessionId } = req.body;
-    
-    if (!sessionId) {
-      return res.status(400).json({ error: "SessionId is required" });
-    }
-    
-    // Find active session
-    const session = await Session.findOne({ sessionId, isActive: true });
-    
-    if (!session) {
-      return res.status(404).json({ error: "Active session not found" });
-    }
+    const { user, session } = await getOrCreateSession(req);
     
     // Update session end time and status
     session.endTime = new Date();
     session.isActive = false;
     await session.save();
     
-    res.json({ success: true, sessionDuration: session.duration });
+    res.json({ 
+      success: true, 
+      sessionDuration: session.duration 
+    });
   } catch (error) {
     console.error("Error ending session:", error);
     res.status(500).json({ error: "Failed to end session" });
   }
 });
 
-router.post('/test', (req, res) => {
-  res.json({ success: true, message: 'API is working!' });
+// Get conversation history
+router.get('/history', authMiddleware, async (req, res) => {
+  try {
+    const { user } = await getOrCreateSession(req);
+    const limit = parseInt(req.query.limit) || 10;
+    const page = parseInt(req.query.page) || 1;
+    const skip = (page - 1) * limit;
+    
+    const queries = await Query.find({ userId: user._id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+    
+    const total = await Query.countDocuments({ userId: user._id });
+    
+    res.json({
+      success: true,
+      data: queries,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching history:", error);
+    res.status(500).json({ error: "Failed to fetch conversation history" });
+  }
+});
+
+// Test endpoint for health check
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'AskNova chatbot API is running' });
 });
 
 module.exports = router;

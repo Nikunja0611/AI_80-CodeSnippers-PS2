@@ -1,45 +1,18 @@
-// models/user.js
 const mongoose = require('mongoose');
-
 const userSchema = new mongoose.Schema({
-  sessionId: {
-    type: String,
-    required: true,
-    unique: true
+  firebaseUid: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  displayName: { type: String },
+  department: { type: String, default: 'general' },
+  role: { type: String, default: 'employee' },
+  lastActive: { type: Date, default: Date.now },
+  // Add this line:
+  sessionId: { type: String, index: { unique: true, sparse: true } },
+  preferences: {
+    language: { type: String, default: 'en' },
+    notificationsEnabled: { type: Boolean, default: true },
+    theme: { type: String, default: 'light' }
   },
-  name: {
-    type: String
-  },
-  department: {
-    type: String,
-    enum: ['general', 'sales', 'purchase', 'inventory', 'production', 'finance', 'gst', 'admin'],
-    default: 'general'
-  },
-  email: {
-    type: String,
-    trim: true,
-    lowercase: true
-  },
-  role: {
-    type: String,
-    enum: ['user', 'admin', 'supervisor'],
-    default: 'user'
-  },
-  lastActive: {
-    type: Date,
-    default: Date.now
-  },
-  queryCount: {
-    type: Number,
-    default: 0
-  },
-  deviceInfo: {
-    type: String
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
+  permissions: [{ type: String }]
 }, { timestamps: true });
-
 module.exports = mongoose.model('User', userSchema);

@@ -1,31 +1,116 @@
-// utils/contextProvider.js
-const mongoose = require('mongoose');
+const User = require('../models/user');
+const Query = require('../models/query');
+const ERPIntegration = require('../models/erpIntegrationModel');
+const axios = require('axios');
 
-// Function to get contextual information based on the query and module
-const getContextualInfo = async (query, module) => {
+/**
+ * Get contextual information for enhancing AI responses
+ */
+const getContextualInfo = async (userId, department = 'general') => {
   try {
-    // This is a simplified implementation - in a real system, this would:
-    // 1. Use advanced NLP to categorize the query
-    // 2. Fetch relevant data from databases based on module/category
-    // 3. Structure the context in a way that's useful for the AI
+    // Get user information
+    const user = await User.findById(userId);
     
-    // Simulated module-specific context
-    const moduleContexts = {
-      sales: "NovaERP Sales module handles customer management, quotations, invoicing, and order processing. Sales data includes customer details, product prices, discount schemes, taxes, and payment terms.",
-      purchase: "NovaERP Purchase module manages vendor relationships, purchase orders, goods receipt, and vendor bills. It includes data on suppliers, purchase prices, and inventory received.",
-      gst: "GST module in NovaERP handles tax calculations, GST returns, e-invoicing, and compliance. It includes GSTIN validation, HSN codes, and tax rates for different products.",
-      finance: "Finance module covers accounts receivable, accounts payable, general ledger, and financial reporting. Chart of accounts follows standard accounting principles.",
-      inventory: "Inventory module tracks stock levels, warehouse management, stock transfers, and inventory valuation. Products have SKUs, batch tracking, and expiry dates where applicable.",
-      production: "Production module handles BOMs, work orders, machine scheduling, and raw material planning. Production processes are defined with input materials, labor, and machine hours.",
-      general: "NovaERP is an integrated business management system with modules for Sales, Purchase, GST, Finance, Inventory, and Production. The system follows standard business processes and compliance requirements."
+    if (!user) {
+      return {
+        user: { department, role: 'employee' },
+        conversationHistory: [],
+        availableERP: []
+      };
+    }
+    
+    // Get recent queries from this user (last 5)
+    const recentQueries = await Query.find({ userId: user._id })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('prompt response');
+    
+    // Get department-specific ERP integrations
+    const erpModules = await ERPIntegration.find({ 
+      $or: [
+        { module: department },
+        { module: 'general' }
+      ],
+      isActive: true,
+      accessRoles: { $in: [user.role, 'all'] }
+    });
+    
+    // Build context object
+    const context = {
+      user: {
+        department: user.department || department,
+        role: user.role || 'employee',
+        name: user.displayName
+      },
+      conversationHistory: recentQueries.map(q => ({
+        query: q.prompt,
+        response: q.response
+      })),
+      availableERP: erpModules.map(m => ({
+        module: m.module,
+        name: m.name,
+        description: m.description
+      }))
     };
     
-    // Return module-specific context
-    return moduleContexts[module.toLowerCase()] || moduleContexts.general;
+    return context;
   } catch (error) {
-    console.error("Error getting contextual info:", error);
-    return "";
+    console.error('Error gathering context:', error);
+    return {
+      user: { department, role: 'employee' },
+      conversationHistory: [],
+      availableERP: []
+    };
   }
 };
 
-module.exports = { getContextualInfo };
+/**
+ * Fetch real-time data from ERP system based on query intent
+ */
+const fetchERPData = async (intent, parameters, userRole) => {
+  try {
+    // Find appropriate ERP integration
+    const erpIntegration = await ERPIntegration.findOne({
+      module: intent,
+      isActive: true,
+      accessRoles: { $in: [userRole, 'all'] }
+    });
+    
+    if (!erpIntegration) {
+      return { 
+        success: false, 
+        message: 'No ERP integration available for this request' 
+      };
+    }
+    
+    // Make API call to ERP system
+    const response = await axios({
+      method: erpIntegration.method,
+      url: `${process.env.ERP_API_BASE_URL}${erpIntegration.endpoint}`,
+      headers: {
+        'Authorization': `Bearer ${process.env.ERP_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      params: erpIntegration.method === 'GET' ? parameters : undefined,
+      data: erpIntegration.method !== 'GET' ? parameters : undefined
+    });
+    
+    return {
+      success: true,
+      data: response.data,
+      mapping: erpIntegration.responseMapping
+    };
+  } catch (error) {
+    console.error('Error fetching ERP data:', error);
+    return { 
+      success: false, 
+      message: 'Failed to fetch data from ERP system',
+      error: error.message
+    };
+  }
+};
+
+module.exports = {
+  getContextualInfo,
+  fetchERPData
+};

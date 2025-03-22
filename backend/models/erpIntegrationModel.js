@@ -1,57 +1,29 @@
-const mongoose = require("mongoose");
-
-const erpModuleSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  description: String,
-  masterData: [{
-    name: String,
-    description: String,
-    apiEndpoint: String,
-    sampleQueries: [String]
-  }],
-  transactions: [{
-    name: String,
-    description: String,
-    apiEndpoint: String,
-    sampleQueries: [String]
-  }],
-  reports: [{
-    name: String,
-    description: String,
-    apiEndpoint: String,
-    sampleQueries: [String]
-  }],
-  dependencies: [String],
-  contextPrompt: String
-});
-
-const erpGSTSchema = new mongoose.Schema({
-  gstType: {
-    type: String,
-    enum: ["CGST", "SGST", "IGST", "UTGST"],
-    required: true
-  },
-  description: String,
-  applicableOn: String,
-  collectedBy: String,
-  sampleQueries: [String]
-});
+const mongoose = require('mongoose');
 
 const erpIntegrationSchema = new mongoose.Schema({
-  modules: [erpModuleSchema],
-  gstTypes: [erpGSTSchema],
-  systemContext: {
-    type: String,
-    default: "IDMS ERP System"
+  module: { 
+    type: String, 
+    required: true,
+    enum: ['sales', 'hr', 'finance', 'inventory', 'production', 'general'] 
   },
-  lastUpdated: {
-    type: Date,
-    default: Date.now
-  }
-});
+  name: { type: String, required: true },
+  endpoint: { type: String, required: true },
+  description: { type: String },
+  method: { 
+    type: String, 
+    enum: ['GET', 'POST', 'PUT', 'DELETE'],
+    default: 'GET'
+  },
+  parameters: [{ 
+    name: { type: String, required: true },
+    type: { type: String, required: true },
+    description: { type: String },
+    required: { type: Boolean, default: false }
+  }],
+  sampleResponse: { type: Object },
+  responseMapping: { type: Object, default: {} },
+  isActive: { type: Boolean, default: true },
+  accessRoles: [{ type: String }]
+}, { timestamps: true });
 
-module.exports = mongoose.model("ERPIntegration", erpIntegrationSchema);
+module.exports = mongoose.model('ERPIntegration', erpIntegrationSchema);

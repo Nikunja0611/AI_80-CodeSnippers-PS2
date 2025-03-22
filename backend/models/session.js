@@ -1,59 +1,49 @@
-// models/session.js
 const mongoose = require('mongoose');
 
 const sessionSchema = new mongoose.Schema({
-  sessionId: {
-    type: String,
-    required: true,
-    unique: true
+  sessionId: { 
+    type: String, 
+    required: true, 
+    unique: true  // This is causing the problem when null values are inserted
   },
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+  userId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User', 
+    required: true 
   },
-  startTime: {
-    type: Date,
-    default: Date.now
+  startTime: { 
+    type: Date, 
+    default: Date.now 
   },
-  endTime: {
-    type: Date
+  endTime: { 
+    type: Date 
   },
-  duration: {
-    type: Number // in seconds
+  isActive: { 
+    type: Boolean, 
+    default: true 
   },
-  queryCount: {
-    type: Number,
-    default: 0
+  platform: { 
+    type: String, 
+    enum: ['web', 'whatsapp', 'slack', 'teams', 'email'], 
+    default: 'web' 
   },
-  deviceInfo: {
-    type: String
+  deviceInfo: { 
+    type: Object, 
+    default: {} 
   },
-  browser: {
-    type: String
-  },
-  ipAddress: {
-    type: String
-  },
-  location: {
-    type: String
-  },
-  isActive: {
+  isAnonymous: {
     type: Boolean,
-    default: true
-  },
-  lastActiveTime: {
-    type: Date,
-    default: Date.now
+    default: false
   }
-}, { timestamps: true });
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true }
+});
 
-// Calculate session duration before saving
-sessionSchema.pre('save', function(next) {
-  if (this.endTime && this.startTime) {
-    this.duration = Math.floor((this.endTime - this.startTime) / 1000);
-  }
-  next();
+// Virtual for session duration
+sessionSchema.virtual('duration').get(function() {
+  if (!this.endTime) return null;
+  return (this.endTime - this.startTime) / 1000; // Duration in seconds
 });
 
 module.exports = mongoose.model('Session', sessionSchema);

@@ -6,7 +6,7 @@ const cors = require("cors");
 const path = require("path");
 const chatbotRoutes = require("./routes/chatbotRoutes");
 const erpRoutes = require("./routes/erpRoutes");
-require("dotenv").config();
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -15,6 +15,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 // Database connection
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected successfully"))
@@ -23,7 +24,7 @@ mongoose.connect(process.env.MONGO_URI)
 // API routes
 app.use("/api/chatbot", chatbotRoutes);
 app.use("/api/erp", erpRoutes);
-
+app.use('/api/analytics', analyticsRoutes);
 
 // Serve static assets in production
 if (process.env.NODE_ENV === "production") {

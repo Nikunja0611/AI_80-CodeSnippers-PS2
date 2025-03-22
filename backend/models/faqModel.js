@@ -1,52 +1,18 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const faqSchema = new mongoose.Schema({
-  question: {
-    type: String,
-    required: true,
-    unique: true,
-    index: true
-  },
-  answer: {
-    type: String,
-    required: true
-  },
-  module: {
-    type: String,
-    enum: ["sales", "purchase", "stores", "production", "quality", "dispatch", "finance", "gst", "general"],
-    default: "general"
-  },
-  tags: [String],
-  category: {
-    type: String,
-    enum: ["master_data", "transaction", "report", "process", "general"],
-    default: "general"
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  },
-  useCount: {
-    type: Number,
-    default: 0
-  },
-  relevanceScore: {
-    type: Number,
-    default: 1.0
-  }
-});
+  question: { type: String, required: true },
+  answer: { type: String, required: true },
+  category: { type: String, required: true },
+  department: { type: String, default: 'general' },
+  keywords: [{ type: String }],
+  popularity: { type: Number, default: 0 },
+  lastUpdated: { type: Date, default: Date.now },
+  isActive: { type: Boolean, default: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+}, { timestamps: true });
 
-// Add text search indexing
-faqSchema.index({ question: 'text', answer: 'text', tags: 'text' });
+// Text index for search functionality
+faqSchema.index({ question: 'text', keywords: 'text' });
 
-// Pre-save middleware to update timestamp
-faqSchema.pre('save', function(next) {
-  this.updatedAt = Date.now();
-  next();
-});
-
-module.exports = mongoose.model("FAQ", faqSchema);
+module.exports = mongoose.model('FAQ', faqSchema);

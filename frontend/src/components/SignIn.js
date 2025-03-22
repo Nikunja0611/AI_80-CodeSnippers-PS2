@@ -9,7 +9,7 @@ const SignIn = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [showLogoVideo, setShowLogoVideo] = useState(false);
     const logoVideoRef = useRef(null);
-    const [username, setUsername] = useState("");
+    const [email, setEmail] = useState("");  // Changed from username to email
     const [password, setPassword] = useState("");
     const [department, setDepartment] = useState("");
     const [error, setError] = useState("");
@@ -21,8 +21,8 @@ const SignIn = () => {
         setIsLoading(true);
         
         try {
-            // Using username as email for Firebase auth, since Firebase requires email
-            await signInWithEmailAndPassword(auth, username, password);
+            // Using email for Firebase auth
+            await signInWithEmailAndPassword(auth, email, password);
             
             // Show logo video instead of immediately redirecting
             setShowLogoVideo(true);
@@ -75,11 +75,11 @@ const SignIn = () => {
                         
                         <form onSubmit={handleSignIn}>
                             <input 
-                                type="text" 
+                                type="email" 
                                 placeholder="Email Id" 
                                 required 
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
                             />
                             
                             <div className="password-input-container">

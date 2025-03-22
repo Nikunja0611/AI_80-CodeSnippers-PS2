@@ -395,4 +395,8 @@ const verifyFirebaseToken = async (req, res, next) => {
   }
 };
 
-module.exports = router;
+// At the end of firebaseAdmin.js
+module.exports = {
+  admin,
+  authenticateUser
+};
