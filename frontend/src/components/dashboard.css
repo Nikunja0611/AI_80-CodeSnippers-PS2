@@ -1,0 +1,222 @@
+/* Dashboard.css - Styling for Analytics Dashboard */
+
+.dashboard-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+    background-color: #f8f9fd;
+    min-height: 100vh;
+  }
+  
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+  
+  .dashboard-header h1 {
+    color: #333;
+    font-size: 1.8rem;
+    font-weight: 600;
+  }
+  
+  .time-filter {
+    display: flex;
+    gap: 8px;
+    background-color: #fff;
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .time-filter button {
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+  }
+  
+  .time-filter button.active {
+    background-color: #4f6df5;
+    color: white;
+  }
+  
+  .stats-overview {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  
+  .stat-card {
+    background-color: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    text-align: center;
+    transition: transform 0.2s;
+  }
+  
+  .stat-card:hover {
+    transform: translateY(-5px);
+  }
+  
+  .stat-card h3 {
+    color: #666;
+    font-size: 1rem;
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+  
+  .stat-value {
+    color: #333;
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0;
+  }
+  
+  .charts-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  
+  .chart-card {
+    background-color: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+  
+  .chart-card.wide {
+    grid-column: span 2;
+  }
+  
+  .chart-card h2 {
+    color: #333;
+    font-size: 1.2rem;
+    margin-bottom: 16px;
+    font-weight: 600;
+  }
+  
+  .top-queries-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 260px;
+    overflow-y: auto;
+  }
+  
+  .query-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-radius: 8px;
+    background-color: #f9f9f9;
+    transition: background-color 0.2s;
+  }
+  
+  .query-item:hover {
+    background-color: #f0f4ff;
+  }
+  
+  .query-rank {
+    width: 24px;
+    height: 24px;
+    background-color: #4f6df5;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.8rem;
+    margin-right: 12px;
+  }
+  
+  .query-text {
+    flex: 1;
+    font-size: 0.9rem;
+  }
+  
+  .query-count {
+    background-color: #e9ecef;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+  
+  .dashboard-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e1e5f0;
+  }
+  
+  .export-button {
+    padding: 10px 20px;
+    background-color: #4f6df5;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+  }
+  
+  .export-button:hover {
+    background-color: #3d56c5;
+  }
+  
+  .last-updated {
+    color: #777;
+    font-size: 0.85rem;
+  }
+  
+  .loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-size: 1.2rem;
+    color: #555;
+  }
+  
+  /* Responsive design */
+  @media (max-width: 1024px) {
+    .stats-overview {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .charts-container {
+      grid-template-columns: 1fr;
+    }
+    
+    .chart-card.wide {
+      grid-column: span 1;
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .dashboard-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    
+    .time-filter {
+      width: 100%;
+      justify-content: space-between;
+    }
+    
+    .stats-overview {
+      grid-template-columns: 1fr;
+    }
+  }
