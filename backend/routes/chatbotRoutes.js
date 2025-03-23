@@ -14,7 +14,6 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Modified authentication middleware to handle anonymous sessions
-// Modified authentication middleware to handle anonymous sessions
 const authMiddleware = async (req, res, next) => {
   try {
     // Check if auth token is provided
@@ -115,12 +114,117 @@ const getOrCreateSession = async (req) => {
   }
 };
 
+// Helper function to generate chart data
+const generateChartData = (data, chartType) => {
+  try {
+    // Implementation depends on your data structure
+    // This is a simple example
+    if (!data || !Array.isArray(data)) {
+      return null;
+    }
+
+    switch (chartType) {
+      case 'bar':
+        return {
+          type: 'bar',
+          labels: data.map(item => item.label || item.name || item.id),
+          datasets: [{
+            data: data.map(item => item.value || item.count || 0)
+          }]
+        };
+      case 'line':
+        return {
+          type: 'line',
+          labels: data.map(item => item.date || item.period || item.label),
+          datasets: [{
+            data: data.map(item => item.value || item.count || 0)
+          }]
+        };
+      case 'pie':
+        return {
+          type: 'pie',
+          labels: data.map(item => item.label || item.name || item.category),
+          datasets: [{
+            data: data.map(item => item.value || item.count || item.percentage || 0)
+          }]
+        };
+      default:
+        return null;
+    }
+  } catch (error) {
+    console.error('Error generating chart data:', error);
+    return null;
+  }
+};
+
+// Function to format response based on platform
+const formatResponseForPlatform = (response, platform, chartInfo) => {
+  try {
+    switch (platform.toLowerCase()) {
+      case 'web':
+        // For web, we can return rich HTML with possible chart embedding
+        if (chartInfo) {
+          return {
+            text: response,
+            chart: chartInfo
+          };
+        }
+        return { text: response };
+        
+      case 'mobile':
+        // For mobile apps, we might need a more structured format
+        const formattedMobile = {
+          text: response,
+          format: 'markdown'
+        };
+        if (chartInfo) {
+          formattedMobile.chart = chartInfo;
+        }
+        return formattedMobile;
+        
+      case 'slack':
+        // For Slack, we might need to format as blocks
+        const slackBlocks = [{ type: 'section', text: { type: 'mrkdwn', text: response } }];
+        if (chartInfo) {
+          slackBlocks.push({
+            type: 'image',
+            image_url: chartInfo.url,
+            alt_text: `${chartInfo.type} chart`
+          });
+        }
+        return { blocks: slackBlocks };
+        
+      case 'teams':
+        // For MS Teams
+        const teamsCard = {
+          type: 'AdaptiveCard',
+          body: [{ type: 'TextBlock', text: response, wrap: true }]
+        };
+        if (chartInfo) {
+          teamsCard.body.push({
+            type: 'Image', 
+            url: chartInfo.url,
+            altText: `${chartInfo.type} chart`
+          });
+        }
+        return teamsCard;
+        
+      default:
+        // Default to simple text response
+        return { text: response };
+    }
+  } catch (error) {
+    console.error('Error formatting response:', error);
+    return { text: response }; // Fallback to simple text
+  }
+};
+
 // Process user query - updated to use our custom auth middleware
 router.post('/query', authMiddleware, async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { prompt, department, isVoiceCommand } = req.body;
+    const { prompt, department, isVoiceCommand, platform = 'web' } = req.body;
     
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ 
@@ -163,10 +267,17 @@ router.post('/query', authMiddleware, async (req, res) => {
       query.processingTime = Date.now() - startTime;
       await query.save();
       
+      // Format response for platform
+      const formattedResponse = formatResponseForPlatform(
+        faqMatch.faq.answer,
+        platform,
+        null
+      );
+      
       return res.json({ 
         success: true, 
         queryId: query._id,
-        response: faqMatch.faq.answer,
+        response: formattedResponse,
         source: 'faq'
       });
     }
@@ -180,24 +291,59 @@ router.post('/query', authMiddleware, async (req, res) => {
       erpData = await fetchERPData(intent, params, user.role);
     }
     
+    // Detect if query requests visualization
+    const visualizationPattern = /chart|graph|plot|visualize|trend/i;
+    const needsVisualization = visualizationPattern.test(prompt);
+    
     // If we got data from ERP, format and return it
     if (erpData && erpData.success) {
       // Format ERP data as a response
-      const erpResponse = `Here's the information from the ${intent} system: 
+      let erpResponse = `Here's the information from the ${intent} system: 
       
 ${JSON.stringify(erpData.data, null, 2)}`;
       
+      // If we need visualization and have ERP data
+      let chartData = null;
+      if (needsVisualization) {
+        // Determine chart type
+        let chartType = 'bar'; // default
+        if (/trend|over time|history/i.test(prompt)) chartType = 'line';
+        if (/distribution|breakdown|percentage/i.test(prompt)) chartType = 'pie';
+        
+        // Generate chart
+        chartData = generateChartData(erpData.data, chartType);
+        
+        // Include in response
+        if (chartData) {
+          query.visualizationType = chartType;
+          query.chartData = chartData;
+          
+          // Update response to include reference to chart
+          erpResponse = `${erpResponse}\n\nI've generated a ${chartType} chart with the requested data.`;
+        }
+      }
+      
       query.response = erpResponse;
-      query.responseType = 'text';
+      query.responseType = needsVisualization && chartData ? 'visualization' : 'text';
       query.responseTime = new Date();
       query.source = 'erp';
       query.processingTime = Date.now() - startTime;
       await query.save();
       
+      // Format response for platform
+      const formattedResponse = formatResponseForPlatform(
+        erpResponse,
+        platform,
+        query.chartData ? {
+          type: query.visualizationType,
+          url: `/api/charts/${query._id}`
+        } : null
+      );
+      
       return res.json({
         success: true,
         queryId: query._id,
-        response: erpResponse,
+        response: formattedResponse,
         source: 'erp',
         data: erpData.data
       });
@@ -231,12 +377,22 @@ ${JSON.stringify(erpData.data, null, 2)}`;
     query.processingTime = Date.now() - startTime;
     await query.save();
     
-    // Send response to client
-    res.json({ 
-      success: true, 
-      queryId: query._id,
+    // Format response for platform
+    const formattedResponse = formatResponseForPlatform(
       response,
-      source: 'ai'
+      platform,
+      query.chartData ? {
+        type: query.visualizationType,
+        url: `/api/charts/${query._id}`
+      } : null
+    );
+    
+    // Send platform-specific response
+    res.json({
+      success: true,
+      queryId: query._id,
+      response: formattedResponse,
+      source: query.source
     });
     
   } catch (error) {
@@ -248,8 +404,6 @@ ${JSON.stringify(erpData.data, null, 2)}`;
     });
   }
 });
-
-// Update remaining endpoints to use our modified auth middleware
 
 // Submit feedback for a query
 router.post('/feedback', authMiddleware, async (req, res) => {
@@ -340,6 +494,67 @@ router.get('/history', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Error fetching history:", error);
     res.status(500).json({ error: "Failed to fetch conversation history" });
+  }
+});
+
+// Text-to-speech endpoint for a specific query
+router.get('/tts/:queryId', authMiddleware, async (req, res) => {
+  try {
+    const { queryId } = req.params;
+    const query = await Query.findById(queryId);
+    
+    if (!query) {
+      return res.status(404).json({ error: "Query not found" });
+    }
+    
+    // Using Google Cloud TTS (mock implementation)
+    const ttsResponse = {
+      audioContent: "base64-encoded-audio"
+    };
+    
+    res.json({
+      success: true,
+      audioUrl: `/api/audio/${queryId}`,
+      duration: 12 // seconds
+    });
+  } catch (error) {
+    console.error("Error generating speech:", error);
+    res.status(500).json({ error: "Failed to generate speech" });
+  }
+});
+
+// Training feedback endpoint for admin users
+router.post('/training-feedback', authMiddleware, async (req, res) => {
+  try {
+    const { queryId, correctResponse, category } = req.body;
+    
+    // Verify admin permissions
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Permission denied" });
+    }
+    
+    const query = await Query.findById(queryId);
+    
+    if (!query) {
+      return res.status(404).json({ error: "Query not found" });
+    }
+    
+    // Add to training data
+    const trainingEntry = {
+      prompt: query.prompt,
+      response: correctResponse || query.response,
+      department: query.department,
+      category: category || query.intentDetected,
+      source: 'human_feedback'
+    };
+    
+    // In production, save to a TrainingData model
+    console.log("Added to training data:", trainingEntry);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error adding training data:", error);
+    res.status(500).json({ error: "Failed to add training data" });
   }
 });
 

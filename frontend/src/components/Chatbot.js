@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { FaMicrophone, FaPaperPlane, FaThumbsUp, FaThumbsDown, FaRobot, FaHistory, FaTrash, FaAngleDown } from 'react-icons/fa';
+import { FaMicrophone, FaPaperPlane, FaThumbsUp, FaThumbsDown, FaRobot, FaHistory, FaTrash, FaAngleDown, FaChartBar, FaVolumeUp } from 'react-icons/fa';
 import UserProfile from './UserProfile';
 import { signOut, auth } from '../firebase';
 import './Chatbot.css';
@@ -44,6 +44,11 @@ const Chatbot = ({ user, onSignOut }) => {
     userRole: localStorage.getItem('userRole') || 'general',
     department: localStorage.getItem('department') || 'general'
   });
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioElement, setAudioElement] = useState(null);
+  const [showChartModal, setShowChartModal] = useState(false);
+  const [currentChart, setCurrentChart] = useState(null);
+  
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -149,6 +154,16 @@ const Chatbot = ({ user, onSignOut }) => {
     }
   }, []);
 
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.src = '';
+      }
+    };
+  }, [audioElement]);
+
   // Helper function to update messages in a specific chat
   const updateChatMessages = (chatIndex, newMessages) => {
     const updatedChats = [...chats];
@@ -197,9 +212,53 @@ const Chatbot = ({ user, onSignOut }) => {
     setChats(updatedChats);
   };
 
+  // Function to detect if visualization is needed
+  const needsVisualization = (text) => {
+    const visualKeywords = ['chart', 'graph', 'plot', 'visualize', 'trend', 'compare', 'visualization', 'dashboard'];
+    return visualKeywords.some(keyword => text.toLowerCase().includes(keyword));
+  };
+
+  // Function to play audio response
+  const playAudioResponse = async (messageId) => {
+    try {
+      if (isPlaying && audioElement) {
+        audioElement.pause();
+        setIsPlaying(false);
+        return;
+      }
+
+      setIsPlaying(true);
+      
+      // Fetch audio URL from backend
+      const response = await axios.get(`/api/chatbot/tts/${messageId}`);
+      
+      // Create or reuse audio element
+      const audio = audioElement || new Audio(response.data.audioUrl);
+      setAudioElement(audio);
+      
+      audio.onended = () => {
+        setIsPlaying(false);
+      };
+      
+      audio.play();
+    } catch (error) {
+      console.error("Error playing audio:", error);
+      setIsPlaying(false);
+    }
+  };
+
+  // Function to display chart
+  const displayChart = (chartData) => {
+    setCurrentChart(chartData);
+    setShowChartModal(true);
+  };
+
   // Function to send request to the server
   const sendRequestToServer = async (text) => {
     setIsLoading(true);
+    
+    // Check if visualization is needed
+    const requestVisualization = needsVisualization(text);
     
     try {
       console.log('Sending request with data:', {
@@ -207,7 +266,8 @@ const Chatbot = ({ user, onSignOut }) => {
         userId: userInfo.userId,
         userRole: userInfo.userRole,
         department: userInfo.department,
-        isVoiceCommand: isListening
+        isVoiceCommand: isListening,
+        needsVisualization: requestVisualization
       });
       
       const response = await axios.post('/api/chatbot/query', {
@@ -215,21 +275,25 @@ const Chatbot = ({ user, onSignOut }) => {
         userId: userInfo.userId,
         userRole: userInfo.userRole,
         department: userInfo.department,
-        isVoiceCommand: isListening
+        isVoiceCommand: isListening,
+        needsVisualization: requestVisualization,
+        platform: 'web' // Could change based on where app is running
       });
       
       console.log('Response from server:', response.data);
       
       const botMessage = {
         type: 'bot',
-        text: response.data.response,
+        text: response.data.response.text || response.data.response,
         source: response.data.source,
         modules: response.data.modules,
         timestamp: new Date(),
         id: response.data.queryId,
         suggestedFaq: response.data.suggestedFaq,
         needsEscalation: response.data.needsEscalation,
-        ticketId: response.data.ticketId
+        ticketId: response.data.ticketId,
+        hasChart: response.data.response.chart || null,
+        hasAudio: true // All responses now have potential audio
       };
       
       // Get the current messages to make sure user message is still there
@@ -359,6 +423,11 @@ const Chatbot = ({ user, onSignOut }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // Function to handle role change
+  const handleRoleChange = (e) => {
+    setUserInfo({...userInfo, userRole: e.target.value});
+  };
+
   return (
     <div className="app-container">
       {/* Background Video */}
@@ -380,7 +449,7 @@ const Chatbot = ({ user, onSignOut }) => {
         
         <div className="chat-history-dropdown" ref={dropdownRef}>
           <div className="current-chat-display" onClick={() => setDropdownOpen(!dropdownOpen)}>
-            <span>{chats[activeChat].name}</span>
+            <span>{chats[activeChat]?.name || 'New Chat'}</span>
             <FaAngleDown />
           </div>
           
@@ -463,6 +532,30 @@ const Chatbot = ({ user, onSignOut }) => {
                   </div>
                 )}
                 
+                {/* Add UI elements for chart and audio if available */}
+                {msg.type === 'bot' && !msg.isError && (
+                  <div className="message-actions">
+                    {msg.hasChart && (
+                      <button 
+                        className="chart-button" 
+                        onClick={() => displayChart(msg.hasChart)}
+                        title="View Chart"
+                      >
+                        <FaChartBar />
+                      </button>
+                    )}
+                    {msg.hasAudio && msg.id && (
+                      <button 
+                        className={`audio-button ${isPlaying && showFeedback === msg.id ? 'playing' : ''}`}
+                        onClick={() => playAudioResponse(msg.id)}
+                        title={isPlaying && showFeedback === msg.id ? "Stop Audio" : "Play Audio Response"}
+                      >
+                        <FaVolumeUp />
+                      </button>
+                    )}
+                  </div>
+                )}
+                
                 {msg.source && (
                   <div className="message-source">
                     Source: {msg.source}
@@ -526,6 +619,7 @@ const Chatbot = ({ user, onSignOut }) => {
           <select 
             value={userInfo.department} 
             onChange={(e) => setUserInfo({...userInfo, department: e.target.value})}
+            className="department-selector"
           >
             <option value="general">Department: General</option>
             <option value="sales">Department: Sales</option>
@@ -534,8 +628,40 @@ const Chatbot = ({ user, onSignOut }) => {
             <option value="stores">Department: Stores</option>
             <option value="finance">Department: Finance</option>
           </select>
+          
+          <select 
+            value={userInfo.userRole} 
+            onChange={handleRoleChange}
+            className="role-selector"
+          >
+            <option value="employee">Role: Employee</option>
+            <option value="manager">Role: Manager</option>
+            <option value="admin">Role: Admin</option>
+            <option value="sales">Role: Sales</option>
+            <option value="purchase">Role: Purchase</option>
+            <option value="finance">Role: Finance</option>
+          </select>
         </div>
       </div>
+      
+      {/* Chart Modal */}
+      {showChartModal && currentChart && (
+        <div className="chart-modal">
+          <div className="chart-modal-content">
+            <div className="chart-modal-header">
+              <h3>Data Visualization</h3>
+              <button onClick={() => setShowChartModal(false)}>×</button>
+            </div>
+            <div className="chart-container">
+              {/* We would render the chart here using a charting library */}
+              <div className="chart-placeholder">
+                <p>Chart visualization of type: {currentChart.type}</p>
+                {/* Actual chart rendering would happen here using chart libraries */}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

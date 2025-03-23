@@ -1,3 +1,5 @@
+// utils/contextProvider.js - Enhanced with role checks
+const { rolePermissions, checkPermission } = require('./rolePermissions');
 const User = require('../models/user');
 const Query = require('../models/query');
 const ERPIntegration = require('../models/erpIntegrationModel');
@@ -10,7 +12,7 @@ const getContextualInfo = async (userId, department = 'general') => {
   try {
     // Get user information
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return {
         user: { department, role: 'employee' },
@@ -18,13 +20,13 @@ const getContextualInfo = async (userId, department = 'general') => {
         availableERP: []
       };
     }
-    
+
     // Get recent queries from this user (last 5)
     const recentQueries = await Query.find({ userId: user._id })
       .sort({ createdAt: -1 })
       .limit(5)
       .select('prompt response');
-    
+
     // Get department-specific ERP integrations
     const erpModules = await ERPIntegration.find({ 
       $or: [
@@ -34,7 +36,7 @@ const getContextualInfo = async (userId, department = 'general') => {
       isActive: true,
       accessRoles: { $in: [user.role, 'all'] }
     });
-    
+
     // Build context object
     const context = {
       user: {
@@ -52,7 +54,7 @@ const getContextualInfo = async (userId, department = 'general') => {
         description: m.description
       }))
     };
-    
+
     return context;
   } catch (error) {
     console.error('Error gathering context:', error);
@@ -67,7 +69,15 @@ const getContextualInfo = async (userId, department = 'general') => {
 /**
  * Fetch real-time data from ERP system based on query intent
  */
-const fetchERPData = async (intent, parameters, userRole) => {
+const fetchERPData = async (intent, parameters, userRole, department) => {
+  // Check permission first
+  if (!checkPermission(userRole, department, intent)) {
+    return {
+      success: false,
+      error: "You don't have permission to access this data"
+    };
+  }
+
   try {
     // Find appropriate ERP integration
     const erpIntegration = await ERPIntegration.findOne({
@@ -75,14 +85,12 @@ const fetchERPData = async (intent, parameters, userRole) => {
       isActive: true,
       accessRoles: { $in: [userRole, 'all'] }
     });
-    
+
     if (!erpIntegration) {
-      return { 
-        success: false, 
-        message: 'No ERP integration available for this request' 
-      };
+      // Fall back to mock implementation if no integration is found
+      return fallbackERPMock(intent);
     }
-    
+
     // Make API call to ERP system
     const response = await axios({
       method: erpIntegration.method,
@@ -94,7 +102,7 @@ const fetchERPData = async (intent, parameters, userRole) => {
       params: erpIntegration.method === 'GET' ? parameters : undefined,
       data: erpIntegration.method !== 'GET' ? parameters : undefined
     });
-    
+
     return {
       success: true,
       data: response.data,
@@ -107,6 +115,39 @@ const fetchERPData = async (intent, parameters, userRole) => {
       message: 'Failed to fetch data from ERP system',
       error: error.message
     };
+  }
+};
+
+/**
+ * Fallback mock implementation when no ERP integration is available
+ */
+const fallbackERPMock = (intent) => {
+  // Mock implementation - in production connect to actual ERP APIs
+  switch (intent) {
+    case 'sales':
+      return {
+        success: true,
+        data: {
+          recentSales: [
+            { invoice: 'INV-001', customer: 'ABC Corp', amount: 12500, date: '2023-03-15' },
+            { invoice: 'INV-002', customer: 'XYZ Ltd', amount: 8750, date: '2023-03-16' }
+          ],
+          totalSales: 21250
+        }
+      };
+    case 'inventory':
+      return {
+        success: true,
+        data: {
+          lowStock: [
+            { item: 'Widget A', current: 5, reorderLevel: 10 },
+            { item: 'Widget B', current: 3, reorderLevel: 15 }
+          ],
+          totalItems: 120
+        }
+      };
+    default:
+      return { success: false, error: "No data available" };
   }
 };
 
